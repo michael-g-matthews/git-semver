@@ -1,0 +1,106 @@
+'###############################################################################
+' GitVersion 6.5.1
+'
+' ```yaml
+' workflow: GitFlow/v1
+' ```
+'###############################################################################
+
+@startuml GitFlow v1 Branching Strategy
+
+participant "main" as main
+participant "dev" as dev
+participant "feature" as feature
+participant "release" as release
+participant "Hotfix" as hotfix
+participant "Pull Request" as pr
+
+== Git init ==
+main -> main : Initial commit
+note over main #LightGrey: 0.0.1-1
+main -> dev **: Branch from main
+note over dev #LightGrey: 0.1.0-alpha.1
+
+== Feature Development ==
+note over main,pr: Developer creates feature branch from dev
+dev -> feature **: Branch from dev
+activate feature
+note over feature: feature/FOO-1-add-feature
+note over feature #LightGrey: 0.1.0-FOO-1-add-feature.1+1
+feature -> feature: feat(FOO-1): Added a new feature
+note over feature #LightGrey: 0.1.0-FOO-1-add-feature.1+2
+
+dev -> pr ** : Open Pull Request 1: target dev
+activate pr
+feature->pr: source: feature/FOO-1-add-feature
+note over pr: refs/pull/1/merge
+note over pr #LightGrey: 0.1.0-PullRequest1.2
+note over feature,pr: Review and approve
+feature -> dev: Merge into dev
+note over dev #LightGrey: 0.1.0-alpha.2
+destroy pr
+destroy feature
+activate dev
+dev -> dev: merge commit
+deactivate feature
+note over dev #LightGrey: 0.1.0-alpha.3
+
+== Release Procedure ==
+note over main,pr: Team decides to release new version
+dev -> release **: Branch from dev
+deactivate dev
+activate release
+note over release: release/0.1.0
+note over release #LightGrey: 0.1.0-beta.1+3
+release -> release: docs(release-0.1.0): Updated CHANGELOG.md
+note over release #LightGrey: 0.1.0-beta.1+4
+main -> pr **: Open Pull Request 2: target main
+activate pr
+release -> pr: source: release/0.1.0
+note over pr: refs/pull/2/merge
+note over pr #LightGrey: 0.2.0-PullRequest2.0
+note over release,pr: Review
+release -> release: docs(release-0.1.0): fixed typo
+note over release #LightGrey: 0.1.0-beta.1+5
+release -> pr: Push to open pull request
+note over pr #LightGrey: 0.2.0-PullRequest2.0
+note over release,pr: Review and approve
+release -> main: Merge into main
+destroy pr
+destroy release
+activate main
+note over main #LightGrey: 0.0.1-5
+main -> main: merge commit.
+note over main #LightGrey: 0.0.1-6
+main -> main: tag 0.1.0
+note over main #LightGrey: 0.1.0
+main -> dev: rebase dev onto main
+activate dev
+note over dev #LightGrey: 0.2.0-alpha.0
+
+== Hotfix for a release==
+main -> hotfix **: Branch from main
+activate hotfix
+deactivate dev
+note over hotfix: hotfix/FOO-2
+note over hotfix #LightGrey: 0.1.1-beta.1+0
+hotfix -> hotfix: fix(FOO-2): fixed something
+note over hotfix #LightGrey: 0.1.1-beta.1+1
+main -> pr **: Open pull request 3: target main
+activate pr
+hotfix -> pr: source: hotfix/FOO-2
+note over pr: refs/pull/3/merge
+note over pr #LightGrey: 0.2.0-PullRequest3.1
+note over hotfix,pr: Review and approve
+hotfix -> main: Merge into main
+destroy pr
+destroy hotfix
+note over main #LightGrey: 0.1.1-1
+main -> main: merge commit
+note over main #LightGrey: 0.1.1-2
+main -> main: tag 0.1.1
+note over main #LightGrey: 0.1.1
+main -> dev: rebase dev onto main
+activate dev
+note over dev #LightGrey: 0.2.0-alpha.0
+@enduml
