@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "git-semver"
+version = "0.1.0"
+description = "Git-native semantic versioning tool"
+authors = [{name = "Your Name"}]
+dependencies = []
+
+[project.scripts]
+git-semver = "src.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = "test_*.py"
