@@ -1,13 +1,13 @@
-# git-semver Minimum Viable Product
+# git-semver Design Document
 
 ## Requirements
 
-1. Simple cli invocation
+1. Simple CLI invocation
 2. Configurable via git's [configuration mechanism](https://git-scm.com/docs/git#_configuration_mechanism)
 3. Does not modify the repository state
 4. Conforms to [Semantic Versioning 2.0.0](https://semver.org)
-5. Allow explicit version overriding via tags, branch names
-6. Allow explicit version incrementation via commit message (trailers)
+5. Allow explicit version overriding via tags and branch names
+6. Allow explicit version incrementation via commit message trailers
 7. Support [GitFlow branching strategy](https://nvie.com/posts/a-successful-git-branching-model/)
 8. Installable binary
 
@@ -16,14 +16,28 @@
 1. Support multiple branching strategies (GitFlow, GitHub Flow, Trunk, etc.)
 2. Invoke via `git describe --semver [options] [<commit-ish>...]`
 
+## Open Questions
+
+| ID | Topic | Notes |
+| -- | ----- | ----- |
+| OQ-1 | `git describe --semver` | Feasibility depends on git's extensibility model. May need to be a wrapper around `git describe` rather than a true extension of it. |
+| OQ-2 | Monorepo support | Scoping version resolution to a subdirectory. Deferred to a future release. |
+| OQ-3 | Conventional Commits | Automatically mapping `feat:`, `fix:`, `BREAKING CHANGE:` trailers to minor/patch/major bumps. High value but increases scope. |
+| OQ-4 | Tag writing | A `git semver tag` subcommand that writes a new tag for the resolved version. Opt-in only; touches repository state. |
+| OQ-5 | Additional strategies | Trunk-based development, GitHub Flow, and release-train models are the most commonly requested candidates. |
+| OQ-6 | Detached HEAD classification | Should `--branch <name>` be supported to explicitly specify the branch context when HEAD is detached? |
+| OQ-7 | Release branch name as version assertion | Currently treated as a hint with a warning on mismatch. Should mismatch be a hard error? |
+| OQ-8 | `semver.fallbackVersion` initial bump | When no tag exists and the fallback is `0.0.0`, the default patch bump produces `0.0.1-label.N`. Should the default bump in the absence of any tag be minor instead, producing `0.1.0-label.N`, to better reflect that pre-release work is not a patch fix of nothing? |
+| OQ-9 | Named capture groups in label patterns | Allowing named capture groups from the `pattern` regex to be referenced as `{name}` tokens in `prereleaseLabel`. Stretch goal. |
+
 ## Invocation
 
-The following forms should be supported:
+The following forms shall be supported:
 
 - `git semver [options] [<commit-ish>]`
 - `git-semver [options] [<commit-ish>]`
 
-If `<commit-ish>` is omitted, the default commit-ish is `HEAD`.
+If `<commit-ish>` is omitted, the default is `HEAD`.
 
 ### Exit Codes
 
@@ -36,35 +50,39 @@ If `<commit-ish>` is omitted, the default commit-ish is `HEAD`.
 
 ## Configuration
 
-Configuration is controlled via git's
-[configuration mechanism](https://git-scm.com/docs/git#_configuration_mechanism).
-Keys live under `[semver]` section.
+Configuration is controlled via git's [configuration mechanism](https://git-scm.com/docs/git#_configuration_mechanism).
+Keys live under the `[semver]` section and respect git's standard scope
+precedence.
 
 ### Configuration Keys
 
 | Key | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
-| semver.strategy | string | gitflow | Branching strategy used when computing version number. Options are: gitflow |
-| semver.prefix | string | None | Prefix pattern that version tags include. E.g. "v" is the prefix for "v1.2.3". |
-| semver.searchDepth | integer | 0 (unlimited) | Maximum number of commits to traverse when searching for a version tag. 0 means unlimited. |
-| semver.tagType | string | annotated | Indicates which tags are included in the base version search. Options are: annotated, lightweight, any. |
-| semver.fallbackBaseVersion | string | 0.0.0 | The base version number used if no tags that satisfy the pattern are found during search. |
-| semver.incrementViaCommitMessage | bool | False | Whether version incrementing is allowed via commit messages |
-| semver.incrementMajor | string | "Version-Bump: major" | Commit message trailer that forces the major version number to increment. |
-| semver.incrementMinor | string | "Version-Bump: minor" | Commit message trailer that forces the minor version number to increment. |
-| semver.incrementPatch | string | "Version-Bump: patch" | Commit message trailer that forces the patch version number to increment. |
+| semver.strategy | string | `gitflow` | Branching strategy used when computing the version number. Currently only `gitflow` is valid. |
+| semver.prefix | string | *(none)* | Prefix that version tags carry. E.g. `v` for `v1.2.3`. Set to empty string if tags carry no prefix. Accepts a regular expression. |
+| semver.searchDepth | integer | `0` | Maximum number of commits to traverse when searching for a version tag. `0` means unlimited. |
+| semver.tagType | string | `annotated` | Which tags are considered during baseline search. Options: `annotated`, `lightweight`, `any`. |
+| semver.fallbackVersion | string | `0.0.0` | The synthetic baseline version used when no tags satisfying the pattern are found. A warning is emitted to stderr when this fallback is used. |
+| semver.baselineMode | string | `nearest-stable` | Controls which tags are eligible as the version baseline. `nearest-stable` considers only tags with no pre-release component. `nearest-any` considers all matching version tags, including pre-release tags. |
+| semver.incrementViaCommitMessage | bool | `false` | Whether version incrementing via commit message trailers is enabled. |
+| semver.incrementMajor | string | `Version-Bump: major` | Commit message trailer that forces the major version to increment. Only used when `incrementViaCommitMessage` is `true`. |
+| semver.incrementMinor | string | `Version-Bump: minor` | Commit message trailer that forces the minor version to increment. Only used when `incrementViaCommitMessage` is `true`. |
+| semver.incrementPatch | string | `Version-Bump: patch` | Commit message trailer that forces the patch version to increment. Only used when `incrementViaCommitMessage` is `true`. |
+
+### Example
 
 ```ini
 [semver]
     strategy = gitflow
     prefix = [vV]
-
+    baselineMode = nearest-stable
+    tagType = annotated
 ```
 
 ## Semantic Versioning
 
-All version numbers produced by git-semver shall conform to
-[Semantic Versioning 2.0.0](https://semver.org). The format follows:
+All version numbers produced by `git-semver` shall conform to
+[Semantic Versioning 2.0.0](https://semver.org). The format is:
 
 ```text
 MAJOR.MINOR.PATCH[-pre-release][+build-metadata]
@@ -73,13 +91,16 @@ MAJOR.MINOR.PATCH[-pre-release][+build-metadata]
 All version numbers match the regular expression:
 
 ```text
-^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$
+^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)
+(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)
+(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?
+(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$
 ```
 
-### Tag recognition
+### Tag Recognition
 
-A git tag is recognized as a *version tag* if its name matches the regular
-expression:
+A git tag is recognized as a *version tag* if its name, after stripping the
+configured prefix, matches:
 
 ```text
 ^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)$
@@ -88,117 +109,326 @@ expression:
 If a *version prefix* is specified in the configuration, the prefix is stripped
 prior to regex comparison.
 
-A tagged commit is determined to be a stable release if it does not include the
-pre-release capture group. If the specified commit is tagged with a version tag,
-`git-semver` will return the tagged version verbatim, plus any configured
-build-metadata.
+A version tag with no pre-release component denotes a *stable release*. If the
+target commit is pointed to by a stable release tag, `git-semver` returns that
+version verbatim, plus any configured build-metadata. Distance of zero drops the
+pre-release label entirely.
+
+## Version Precedence and Context-Dependence
+
+A version number is not an intrinsic, permanent property of a commit. It is
+always computed as a function of two things:
+
+- the commit itself
+- the branch context
+
+The branch context is which branch the `HEAD` is on when the tool is invoked.
+The same commit may produce different version strings when evaluated from
+different branches.
+
+This is intentional and consistent with how Semantic Versioning defines
+precedence. For example, as a commit propagates through the GitFlow branch
+hierarchy, its version evolves monotonically. Each transition produces a version
+with strictly higher SemVer precedence than the one before it. The following
+shows how a single commit's version evolves:
+
+```text
+0.2.0-alpha.3        reachable from topic branch
+  ↓
+0.2.0-beta.7         reachable from develop, before release branch is created
+  ↓
+1.0.0-beta.7         reachable from develop, after v1.0.0 is merged back
+  ↓
+1.0.0-rc.7           reachable from release/1.0.0
+  ↓
+1.0.0                tagged on main
+```
+
+**Invariant:** The version of a commit never decreases in SemVer precedence as
+it propagates through the GitFlow hierarchy. If the tool ever produces a
+lower-precedence version for a commit than was previously computable, this
+indicates either a bug in the tool or a repository error (such as a mis-tagged
+commit or an out-of-order merge).
+
+**Corollary:** `git semver` computes the version of `HEAD` as seen from the
+current branch. It does not assign a permanent version number to a commit in
+isolation. If a permanent, stable identifier for a specific commit is required,
+that is what release tags are for.
 
 ## History Traversal and Topology
 
-`git-semver` walks the commit graph backwards, starting at the specified commit.
-The traversal produces the following:
+`git-semver` walks the commit graph backwards from the specified commit using a
+two-pass approach.
 
-1. The *version base*: The semantic version with highest precedence among
-reachable release tags.
-2. The *commit distance*: The number of commits between the version base and the
-specified commit.
-3. The set of *version-bump tokens* found in commit messages between the nearest
-ancestor release tag and the specified commit.
-4. The set of *named references* that the specified commit is reachable from.
-This is primarily branches, but may include other reference types.
+**Pass 1 — Baseline search (BFS):** A breadth-first search across all parents
+locates the nearest reachable stable tag. BFS guarantees the nearest tag is
+found first. When `baselineMode = nearest-stable`, pre-release tags encountered
+during traversal are noted but skipped. If multiple stable tags are equidistant,
+the tag with the highest SemVer precedence wins. If two equidistant tags carry
+the same version, a warning is emitted.
+
+**Pass 2 — Label regime classification (second-parent chain walk):** Once the
+baseline is known, the commits in the window `<baseline-tag>..HEAD` must be
+classified to determine which pre-release label to apply. This is described in
+detail under [Label Regime Classification](#label-regime-classification) below.
+
+The traversal produces the following inputs to the version resolution algorithm:
+
+1. The *version base*: the nearest stable release tag, or `semver.fallbackVersion`
+if none exists.
+2. The *commit distance*: the number of commits in `git rev-list <baseline-tag>..HEAD`.
+All commits in the reachable window are counted, including commits that arrived
+via merged branches. No first-parent filtering is applied.
+3. The set of *version-bump trailers* found in commit messages in the same
+window, if `semver.incrementViaCommitMessage` is enabled.
+4. The *label regime* of the target commit: which pre-release label applies,
+determined by the second-parent chain walk.
+
+### Why All Commits Are Counted
+
+Distance counts all commits reachable from `HEAD` that are not reachable from
+the baseline tag, with no first-parent filtering. This ensures every commit in
+the repository has a unique, addressable version. Consider:
+
+```text
+main:    v1.0.0 ──────────────────────── M  ← HEAD
+                \                        /
+feature:         A ──── B ──── C ──── D
+```
+
+The commits `A`, `B`, `C`, `D`, and `M` are all reachable from `HEAD`. A user
+who checks out commit `B` after this merge is on a real commit in the
+repository's history and `git semver` must return a meaningful version for it.
+Counting all five commits gives each a unique distance and therefore a unique
+version. First-parent counting would assign them all distances that conflict
+with each other.
+
+### Baseline Mode
+
+`nearest-stable` (the default) ensures that pre-release tags on release branches
+do not become the baseline for dev. In an active GitFlow repository, `release/1.0.0`
+accumulates `rc` tags before it merges. If one of those `rc` tags were used as
+the baseline for dev, the resulting version would imply that dev is building on
+top of a release candidate rather than a stable release, which is misleading.
+`nearest-any` is available for repositories that tag pre-release commits and
+want those tags to anchor the distance counter.
 
 ### Nearest Release Tag Resolution
 
-When multiple tags are equidistant from the target commit, the tag with the
-highest precedence is preferred. If two equidistant tags have the same version,
-a warning is emitted as this is undefined behavior.
+When multiple stable tags are equidistant from the target commit (most commonly
+at a merge commit where two parent chains each lead to a different tag in the
+same BFS wave), the tag with the highest SemVer precedence is preferred. If two
+equidistant tags carry the same version, a warning is emitted to stderr and the
+tool picks one deterministically by tag creation timestamp. This situation
+represents a repository error.
+
+### Label Regime Classification
+
+For a given commit in the window `<baseline-tag>..HEAD`, this automatically
+determines which pre-release label it receives. The classification depends on
+which branch `HEAD` is on, where the commit sits relative to branch-points in
+the history, and the branching strategy. If a strategy supports label regime
+classification, it must define how to resolve pre-release labels.
 
 ### Commit Distance
 
-Commit distance is counted as the number of commits not reachable from the
-version base.
+Commit distance is the count of all commits since the baseline tag. This is
+equivalent to the output of `git rev-list --count <baseline-tag>..HEAD`. All
+commits in the reachable window are included.
 
 ### Trailer Search Window
 
-Commit trailers are searched and parsed across all commits reachable from the
-target commit that are not reachable from the nearest release tag. This ensures
-that only commits since the release are included. The increment with highest
-precedence found in the window determines the increment behavior.
+When `semver.incrementViaCommitMessage = true`, commit trailers are scanned
+across all commits in `git rev-list <baseline-tag>..HEAD`. The highest-precedence
+bump token found in the window determines the increment behavior
+(major > minor > patch). If no token is found, the default bump is patch.
+Branching strategies like `GitFlow` may override the default behavior.
 
 ## Commit Trailer Conventions
 
-`git-semver` may read *git trailer* lines from commit messages to determine
-version increment behavior. Trailers are interpreted with the conventions
-described in
+`git-semver` reads *git trailer* lines from commit messages to determine version
+increment behavior when `semver.incrementViaCommitMessage = true`. Trailers
+follow the conventions described in
 [`git interpret-trailers`](https://git-scm.com/docs/git-interpret-trailers). The
-trailer must appear in the final paragraph of the commit message, separated
-from the body by a blank line.
+trailer must appear in the final paragraph of the commit message, separated from
+the body by a blank line. Token comparison is case-insensitive and
+leading/trailing whitespace is stripped.
 
 ## GitFlow Branching Strategy
 
-When `semver.strategy = gitflow` is set, `git-semver` derives pre-release labels
-by examining the branches which contain the target commit. Branches are
-classified by examining their branch name. In GitFlow, branches are classified,
-following [](https://nvie.com/posts/a-successful-git-branching-model/), as:
+When `semver.strategy = gitflow`, `git-semver` derives pre-release labels by
+examining the branches that contain the target commit and classifying them by
+name pattern.
 
-| Branch Classification | Default Pattern     | Default Pre-Release Label |
-| --------------------- | ------------------- | ------------------------- |
-| main                  | ^main$\|^master$    | None                      |
-| develop               | ^dev(elop(ment)?)?$ | alpha.{distance}          |
-| feature/topic         | feature[-/].*       | {branch}.{distance}       |
-| release               | release[-/].*       | beta.{distance}           |
-| hotfix                | hotfix[-/].*        | beta.{distance}           |
-| supported             | support[-/].*       | None                      |
+### Branch Classification
 
-Additional classifications are expected to be added later:
+Branches are classified in the following order; the first match wins:
 
-[ ] Merge-request references
-[ ] Supported versions
-[ ] Custom Classifications
+| Classification | Default Pattern | Default Pre-Release Label |
+| -------------- | --------------- | ------------------------- |
+| main | `^main$\|^master$` | *(none — see below)* |
+| develop | `^dev(elop(ment)?)?$` | `dev.{distance}` |
+| feature / topic | `(feature\|topic)[-/].*` | `{branch}.{distance}` |
+| release | `release[-/].*` | `rc.{distance}` |
+| hotfix | `hotfix[-/].*` | `rc.{distance}` |
+| supported | `support[-/].*` | *(none — see below)* |
 
-Because GitFlow is well defined in its branching strategy, we may calculate
-additional information about a commit. At minimum, we will support calculating
-the distance a commit is away from the merge-base between its branch, and the
-branch's parent.
+Unmatched branch names emit a warning to stderr and fall back to feature branch
+behavior.
 
-### GitFlow Git Configuration Options
+Additional classifications expected in future releases:
 
-GitFlow-specific options will reside under the `[semver "GitFlow"]` section.
+- [ ] Merge/pull request references (e.g., `refs/pull/N/merge`)
+- [ ] Custom user-defined classifications
 
-Branch category specific options will reside under the `[semver "GitFlow.<category>]`
-section. Each category may define the following options:
+### Untagged Commits on Main
+
+In well-disciplined GitFlow, every commit that lands on `main` is immediately
+tagged. Untagged commits on `main` represent a tagging gap. When `git-semver`
+encounters an untagged commit on `main`, it attempts to determine the
+pre-release label via [GitFlow Label Regime Classification](#gitflow-label-regime-classification).
+If the pre-release label cannot be determined, the bare numeric distance is used
+as the pre-release identifier, which is valid Semantic Version but signals that
+something is anomalous. This is not treated as a hard error because CI pipelines
+may invoke the tool on `main` between a merge and a tagging step.
+
+### GitFlow Label Regime Classification
+
+**Requirement: `--no-ff` merges.** This algorithm depends on merge commits
+having two distinct parents. Squash merges and rebase merges destroy the second-
+parent chain and make label regime classification impossible. GitFlow already
+mandates `--no-ff` merges; this is a hard requirement for `git-semver` when
+using the GitFlow strategy.
+
+**Consequence for deleted branches:** This algorithm encodes branch provenance
+in the graph structure itself via second-parent links, not in branch refs. A
+release branch can be safely deleted after merging without losing the ability to
+classify its commits, as long as `--no-ff` was used.
+
+**Consequence for context-dependent labeling:** A commit that was made on dev
+before the release branch was cut will carry its `dev` label even when evaluated
+from the release branch or from `main`. This reflects its true origin. Only
+commits that were made exclusively on the release branch receive the `rc` label.
+
+### Release and Hotfix Branch Label Regime
+
+Commits in the ancestry of a release or hotfix branch are divided into two
+groups by the branch-point (the merge-base of the release branch and its parent):
+
+- **Dev-lineage commits** (at or before the branch-point) retain the `dev`
+pre-release label, exactly as they would if evaluated from the dev branch.
+They are included ancestry, not release candidates. Their `N` value is their
+distance from the baseline tag.
+- **Release-exclusive commits** (after the branch-point, on the second-parent
+chain of the merge into main) receive the release branch's label (e.g., `rc`).
+Their `N` counter starts at 1 at the first commit after the branch-point.
+
+In practice, for hotfix branches in well-disciplined GitFlow, the branch-point
+is always a tagged commit on `main`, so all commits on the hotfix branch are
+release-exclusive.
+
+The classification procedure when evaluating from a release or hotfix branch, or
+from `main` after a release has been merged:
+
+1. Identify the merge commit on `main` (or the release/hotfix branch tip) that
+introduced the release.
+2. Walk that merge commit's **second-parent chain** back to the branch-point.
+Commits on this chain are *release-exclusive* — they were made on the release or
+hotfix branch and receive the release branch's pre-release label (e.g., `rc.N`).
+3. All other commits in the window — those reachable from the baseline tag but
+not on the second-parent chain — are *dev-lineage* commits. They retain the
+`dev` pre-release label they would have received if evaluated from the dev branch.
+4. The `N` counter for release-exclusive commits starts at 1 at the first commit
+after the branch-point. Dev-lineage commits use their distance from the baseline
+tag as their `N`, regardless of which branch is `HEAD`.
+
+### Version Declared in Release Branch Name
+
+A release branch name of the form `release/X.Y.Z` asserts the intended release
+version. `git-semver` uses this declared version as the MAJOR.MINOR.PATCH for
+commits on that branch, rather than deriving it solely from footer scanning. If
+trailer scanning in the release window produces a different bump level than the
+declared version implies, a warning is emitted. This is treated as a validation
+hint, not an error.
+
+### GitFlow Configuration
+
+GitFlow-specific options reside under `[semver "GitFlow"]`. Per-category options
+reside under `[semver "GitFlow.<category>"]`. Each category section may define:
 
 | Key | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
-| pattern | string | \<default\> | The regular expression matching the branch name |
-| prereleaseLabel | string | \<default label\> | The pattern used for the pre-release label. Variables may be used with the `{<variable-name>}` syntax. |
+| pattern | string | *(see table above)* | Regular expression matched against the branch name. |
+| prereleaseLabel | string | *(see table above)* | Pattern for the pre-release label. Supports `{branch}` and `{distance}` tokens. |
 
-The allowance of using named capture groups from other configuration values in
-the pre-release label is a stretch goal.
+The `{branch}` token is substituted with the sanitized branch suffix, which the
+portion of the branch name after the configured prefix, with characters outside
+`[0-9A-Za-z-]` replaced by hyphens and consecutive hyphens collapsed.
 
-## Extensibility - Additional Branching Strategies
+If `{distance}` is omitted from the label pattern, the distance is appended
+automatically as a trailing dot-separated identifier.
 
-The branching strategy must be implemented with a clearly defined interface so
+**Example:**
+
+```ini
+[semver]
+    strategy = gitflow
+
+[semver "GitFlow.main"]
+    pattern = main
+
+[semver "GitFlow.develop"]
+    pattern = dev
+    prereleaseLabel = dev.{distance}
+
+[semver "GitFlow.feature"]
+    pattern = topic\/(?P<branch>[a-zA-Z][0-9a-zA-Z-]*)
+    prereleaseLabel = {branch}.{distance}
+
+[semver "GitFlow.release"]
+    prereleaseLabel = rc.{distance}
+
+[semver "GitFlow.hotfix"]
+    prereleaseLabel = rc.{distance}
+```
+
+## Extensibility — Additional Branching Strategies
+
+The branching strategy must be implemented behind a clearly defined interface so
 that additional strategies can be added without modifying the core version
-resolution logic. The interface should expose:
+resolution logic. The interface must expose:
 
-1. A method to classify branch names into a logical group
+1. A method to classify a branch name into a logical branch type.
 2. A method to derive the pre-release label given the branch type, commit
 distance, and branch name.
-3. A method to select the version baseline tag given the branch type and
+3. A method to select the version baseline tag given the branch type and the
 reachable tag set.
-4. A flag indicating whether the strategy overrides trailer-derived bumping for
-specific branch types.
+4. A flag indicating whether the strategy overrides trailer-derived bump levels
+for specific branch types (e.g., a hotfix branch always bumps patch regardless
+of footer tokens).
 
-Strategies will be registered by name and selected via the `semver.strategy`
-configuration key. Unrecognized strategies names should provide a clear error
-message.
+Strategies are registered by name and selected via `semver.strategy`.
+Unrecognized strategy names produce a clear error message and exit with code 3.
+
+The label regime classification logic (second-parent chain walk) described above
+is specific to GitFlow's branch topology. Other strategies may use different
+classification mechanisms. The interface must not assume this particular
+algorithm.
 
 ## Git Integration
 
-The plugin will interact with `git` through `libgit2` and appropriate language
-bindings, or through the git command-line interface via subprocess calls. Using
-direct access to the interface via a library is preferred.
+The plugin interacts with git through `libgit2` via appropriate language
+bindings, or through the git CLI via subprocess calls. Direct library access via
+`libgit2` is strongly preferred: it avoids shell escaping concerns, operates
+correctly in detached HEAD states, and is portable across operating systems
+without requiring git on `PATH`.
+
+**Hard requirement for GitFlow:** Repositories using the GitFlow strategy must
+use `--no-ff` merges. Squash merges and rebase merges destroy the second-parent
+chain required for label regime classification. If the tool detects that a merge
+commit in the classification window has only one parent (indicating a squash merge),
+it emits a warning and falls back to treating all commits in the window as
+dev-lineage.
 
 ## Output Format
 
@@ -206,20 +436,82 @@ By default, `git-semver` writes a single line to stdout containing the resolved
 version string with a trailing newline. Errors and warnings are written to
 stderr.
 
-### Command-line options
+### Command-Line Options
 
 | Option | Description |
 | ------ | ----------- |
-| --short | Omit pre-release and build metadata. Output only MAJOR.MINOR.PATCH |
-| --json | Output a JSON object containing all version fields and metadata. |
-| --dirty [\<s\>] | Append suffix, s, if the working tree has uncommitted changes. Default is "-dirty". |
-| --prefix \<p\> | Override semver.prefix for this invocation. |
-| --strategy \<s\> | Override semver.strategy for this invocation. |
-| -v, --verbose | Print traversal details to stdout. |
-| --version | Print the version of `git-semver` itself and exit. |
-| -h, --help | Print usage information and exit |
+| `--short` | Omit pre-release and build metadata. Output only `MAJOR.MINOR.PATCH`. |
+| `--json` | Output a JSON object containing all version fields and metadata (see below). |
+| `--dirty [<s>]` | Append suffix `s` if the working tree has uncommitted changes. Default suffix is `-dirty`. |
+| `--prefix <p>` | Override `semver.prefix` for this invocation only. |
+| `--strategy <s>` | Override `semver.strategy` for this invocation only. |
+| `-v, --verbose` | Print traversal details to stderr. |
+| `--version` | Print the version of `git-semver` itself and exit. |
+| `-h, --help` | Print usage information and exit. |
 
-## Example Output
+### JSON Output Schema
+
+```json
+{
+  "version":       "1.0.0-rc.2",
+  "major":         1,
+  "minor":         0,
+  "patch":         0,
+  "preRelease":    "rc.2",
+  "buildMeta":     "",
+  "baselineTag":   "v0.1.1",
+  "distance":      10,
+  "branch":        "release/1.0.0",
+  "branchType":    "release",
+  "labelRegime":   "release-exclusive",
+  "bump":          "minor",
+  "dirty":         false
+}
+```
+
+## Corner Cases and Known Limitations
+
+1. Rebase invalidates prior versions. If a branch is rebased, all commit SHAs
+change. Previously computed version numbers are attached to dead SHAs. This is a
+fundamental limitation of rebase workflows. Teams should prefer merge workflows
+when using `git-semver`.
+
+2. Distance zero drops the pre-release label. When the target commit is exactly
+at a stable release tag, the version is returned verbatim with no pre-release
+suffix. A distance of zero means the commit *is* the release.
+
+3. Detached HEAD state. When HEAD is detached, there is no current branch name.
+`git-semver` must fall back to examining which branches are reachable from the
+detached HEAD commit and selecting the most appropriate classification. This is
+an area of ambiguity; the behavior should be documented and a `--branch <name>`
+or environment variable (in the case of CI) override option is considered for
+future work.
+
+4. Equidistant tags of the same version. If two different commits are tagged
+with the same version and are equidistant from the target commit, the result is
+undefined. A warning is emitted and one is selected deterministically. This
+represents a repository tagging error.
+
+5. Squash merges. If a squash merge is detected in the classification window,
+the second-parent chain walk cannot distinguish dev-lineage commits from
+release-exclusive commits. A warning is emitted and all commits in the window
+are treated as dev-lineage. Teams using squash merges should be aware that
+release-branch label classification will not be accurate.
+
+6. Shallow clones. If the traversal reaches the boundary of a shallow clone
+before finding a baseline tag, `git-semver` emits a warning and uses
+`semver.fallbackVersion` as the baseline. The resulting version may be
+incorrect. CI environments that use shallow clones should ensure sufficient
+clone depth or use `git fetch --unshallow`.
+
+7. Commits reachable from two release contexts. If a commit is reachable from
+two different release branches with `rc` or higher labels (for example, if a
+cherry-pick caused the same logical change to appear in both `release/1.0.0` and
+`release/1.1.0`) this violates the GitFlow principle that a commit belongs to a
+single release. `git-semver` emits a warning in this case. The version returned
+is the one with higher SemVer precedence.
+
+## Example Cases
 
 ### Example 1
 
@@ -230,7 +522,7 @@ Configuration:
     strategy = gitflow
 [semver "GitFlow.main"]
     pattern = main
-[semver "GitFlow.develop]
+[semver "GitFlow.develop"]
     pattern = dev
     prereleaseLabel = dev.{distance}
 [semver "GitFlow.feature"]
