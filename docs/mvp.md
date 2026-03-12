@@ -122,55 +122,73 @@ always computed as a function of two things:
 - the commit itself
 - the branch context
 
-The branch context is which branch the `HEAD` is on when the tool is invoked.
+The branch context is formed by which branch the `HEAD` resides when the tool is
+invoked and how the order of precedence is defined by the branching strategy.
 The same commit may produce different version strings when evaluated from
-different branches.
+different contexts, on different branches. This is intentional and
+consistent with how Semantic Versioning defines precedence.
 
-This is intentional and consistent with how Semantic Versioning defines
-precedence. For example, as a commit propagates through the GitFlow branch
-hierarchy, its version evolves monotonically. Each transition produces a version
-with strictly higher SemVer precedence than the one before it. The following
-shows how a single commit's version evolves:
+For example, as a commit propagates up the GitFlow branch hierarchy, its version
+evolves monotonically. Each transition to a new context produces a version with
+a strictly higher semantic version precedence than any previous context.
+
+The following shows how a single commit's version can evolve as it is reachable
+in higher contexts in the GitFlow branch hierarchy:
 
 ```text
-0.2.0-alpha.3        reachable from topic branch
-  ↓
-0.2.0-beta.7         reachable from develop, before release branch is created
-  ↓
-1.0.0-beta.7         reachable from develop, after v1.0.0 is merged back
-  ↓
-1.0.0-rc.7           reachable from release/1.0.0
-  ↓
-1.0.0                tagged on main
+0.2.0-alpha.3     HEAD is on a feature branch, the lowest precedence context.
+                  The commit is an ancestor of HEAD.
+
+0.2.0-beta.7      HEAD is on the development branch, the next precedence context.
+                  The commit is still an ancestor of HEAD in this context.
+                  Therefore, the commit can be given a version with a higher
+                  precedence than the previously calculated version.
+
+1.0.0-beta.7      HEAD is on a release branch, the next precedence context above
+                  the development branch. The next release version has been
+                  explicitly declared 1.0.0. The commit is an ancestor of HEAD
+                  in this context too, and can be given the higher version.
+
+1.0.0-beta.7      HEAD is on main, the highest precedence context.
+                  This commit is an ancestor of HEAD but is not itself tagged.
+                  Therefore, it cannot be given a version that lacks a
+                  pre-release label. There is a merge commit that is an ancestor
+                  of HEAD, but not the commit, with the tag "1.0.0". That commit
+                  has with its version lacking the pre-release label, has higher
+                  precedence over this commit. This is the highest version that
+                  can describe the commit, so it is its Semantic Version.
 ```
 
-**Invariant:** The version of a commit never decreases in SemVer precedence as
-it propagates through the GitFlow hierarchy. If the tool ever produces a
-lower-precedence version for a commit than was previously computable, this
-indicates either a bug in the tool or a repository error (such as a mis-tagged
-commit or an out-of-order merge).
-
-**Corollary:** `git semver` computes the version of `HEAD` as seen from the
+`git semver` computes the version of a commit as seen from the `HEAD` of the
 current branch. It does not assign a permanent version number to a commit in
 isolation. If a permanent, stable identifier for a specific commit is required,
-that is what release tags are for.
+release tags should be used.
 
 ## History Traversal and Topology
 
 `git-semver` walks the commit graph backwards from the specified commit using a
 two-pass approach.
 
-**Pass 1 — Baseline search (BFS):** A breadth-first search across all parents
-locates the nearest reachable stable tag. BFS guarantees the nearest tag is
-found first. When `baselineMode = nearest-stable`, pre-release tags encountered
-during traversal are noted but skipped. If multiple stable tags are equidistant,
-the tag with the highest SemVer precedence wins. If two equidistant tags carry
-the same version, a warning is emitted.
+### Pass 1: Baseline search (BFS)
 
-**Pass 2 — Label regime classification (second-parent chain walk):** Once the
-baseline is known, the commits in the window `<baseline-tag>..HEAD` must be
-classified to determine which pre-release label to apply. This is described in
-detail under [Label Regime Classification](#label-regime-classification) below.
+A breadth-first search across all parents locates the nearest reachable stable
+tag. BFS guarantees the nearest tag is found first. When `baselineMode = nearest-stable`,
+pre-release tags encountered during traversal are noted but skipped. If multiple
+stable tags are equidistant, the tag with the highest semantic version precedence
+wins. If two equidistant tags carry the same version, a warning is emitted.
+
+### Pass 2: Label Regime Classification
+
+Once the baseline is known, the commits in the window `<baseline-tag>..HEAD`
+must be classified to determine which pre-release label to apply. The
+classification depends on:
+
+- which branch `HEAD` is on
+- where the commit sits relative to branch-points in the history
+- the branching strategy.
+
+If a strategy supports label regime classification, it must define how to
+resolve pre-release labels.
 
 The traversal produces the following inputs to the version resolution algorithm:
 
@@ -181,10 +199,9 @@ All commits in the reachable window are counted, including commits that arrived
 via merged branches. No first-parent filtering is applied.
 3. The set of *version-bump trailers* found in commit messages in the same
 window, if `semver.incrementViaCommitMessage` is enabled.
-4. The *label regime* of the target commit: which pre-release label applies,
-determined by the second-parent chain walk.
+4. The *label regime* of the target commit (which pre-release label applies).
 
-### Why All Commits Are Counted
+### All Commits Are Counted
 
 Distance counts all commits reachable from `HEAD` that are not reachable from
 the baseline tag, with no first-parent filtering. This ensures every commit in
@@ -200,35 +217,28 @@ The commits `A`, `B`, `C`, `D`, and `M` are all reachable from `HEAD`. A user
 who checks out commit `B` after this merge is on a real commit in the
 repository's history and `git semver` must return a meaningful version for it.
 Counting all five commits gives each a unique distance and therefore a unique
-version. First-parent counting would assign them all distances that conflict
-with each other.
+version. First-parent counting would assign them all the same distance, which
+conflicts with each other.
 
 ### Baseline Mode
 
 `nearest-stable` (the default) ensures that pre-release tags on release branches
-do not become the baseline for dev. In an active GitFlow repository, `release/1.0.0`
-accumulates `rc` tags before it merges. If one of those `rc` tags were used as
-the baseline for dev, the resulting version would imply that dev is building on
-top of a release candidate rather than a stable release, which is misleading.
-`nearest-any` is available for repositories that tag pre-release commits and
-want those tags to anchor the distance counter.
+do not become the baseline for a version calculation. In an active GitFlow
+repository, `release/1.0.0` accumulates `rc` tags before it merges. If one of
+those `rc` tags were used as the baseline for a commit the development branch,
+the resulting version would imply that dev is building on top of a release
+candidate rather than a stable release, which is misleading. `nearest-any` is
+available for repositories that tag pre-release commits and want those tags to
+anchor the distance counter.
 
 ### Nearest Release Tag Resolution
 
 When multiple stable tags are equidistant from the target commit (most commonly
 at a merge commit where two parent chains each lead to a different tag in the
-same BFS wave), the tag with the highest SemVer precedence is preferred. If two
-equidistant tags carry the same version, a warning is emitted to stderr and the
-tool picks one deterministically by tag creation timestamp. This situation
-represents a repository error.
-
-### Label Regime Classification
-
-For a given commit in the window `<baseline-tag>..HEAD`, this automatically
-determines which pre-release label it receives. The classification depends on
-which branch `HEAD` is on, where the commit sits relative to branch-points in
-the history, and the branching strategy. If a strategy supports label regime
-classification, it must define how to resolve pre-release labels.
+same BFS wave), the tag with the highest semantic version precedence is
+preferred. If two equidistant tags carry the same version, a warning is emitted
+to stderr and the tool picks one deterministically by tag creation timestamp.
+The older tag is chosen. This situation represents a repository history error.
 
 ### Commit Distance
 
@@ -241,8 +251,9 @@ commits in the reachable window are included.
 When `semver.incrementViaCommitMessage = true`, commit trailers are scanned
 across all commits in `git rev-list <baseline-tag>..HEAD`. The highest-precedence
 bump token found in the window determines the increment behavior
-(major > minor > patch). If no token is found, the default bump is patch.
-Branching strategies like `GitFlow` may override the default behavior.
+(major > minor > patch). If no token is found, the default bump is minor.
+Branching strategies, like `GitFlow`, may override the default behavior in
+certain applicable contexts.
 
 ## Commit Trailer Conventions
 
@@ -271,7 +282,7 @@ Branches are classified in the following order; the first match wins:
 | feature / topic | `(feature\|topic)[-/].*` | `{branch}.{distance}` |
 | release | `release[-/].*` | `rc.{distance}` |
 | hotfix | `hotfix[-/].*` | `rc.{distance}` |
-| supported | `support[-/].*` | *(none — see below)* |
+| long-term support | `support[-/].*` | *(none — see below)* |
 
 Unmatched branch names emit a warning to stderr and fall back to feature branch
 behavior.
@@ -283,64 +294,86 @@ Additional classifications expected in future releases:
 
 ### Untagged Commits on Main
 
-In well-disciplined GitFlow, every commit that lands on `main` is immediately
-tagged. Untagged commits on `main` represent a tagging gap. When `git-semver`
-encounters an untagged commit on `main`, it attempts to determine the
-pre-release label via [GitFlow Label Regime Classification](#gitflow-label-regime-classification).
-If the pre-release label cannot be determined, the bare numeric distance is used
-as the pre-release identifier, which is valid Semantic Version but signals that
-something is anomalous. This is not treated as a hard error because CI pipelines
-may invoke the tool on `main` between a merge and a tagging step.
+The semantic version of a commit using GitFlow is:
+
+```text
+MAJOR.MINOR.PATCH-LABEL.N
+```
+
+where:
+
+- `LABEL` is the pre-release label being deduced by the classification
+- `N` is a counter, representing a distance in number of commits. `N` is defined
+uniquely for each classification.
+
+In well-disciplined GitFlow, every merge commit that is made on `main` is
+immediately tagged. Untagged commits on `main` represent a tagging gap. When
+`git-semver` encounters an untagged commit on `main`, it attempts to determine
+the pre-release label via [GitFlow's Label Regime Classification](#gitflow-label-regime-classification).
+If the pre-release label cannot be determined, the bare numeric distance since
+the previous tag is used as the pre-release identifier.
+
+```text
+MAJOR.MINOR.PATCH-N
+```
+
+This is a valid Semantic Version but signals that something is anomalous.
 
 ### GitFlow Label Regime Classification
 
-**Requirement: `--no-ff` merges.** This algorithm depends on merge commits
-having two distinct parents. Squash merges and rebase merges destroy the second-
-parent chain and make label regime classification impossible. GitFlow already
-mandates `--no-ff` merges; this is a hard requirement for `git-semver` when
-using the GitFlow strategy.
+This algorithm depends on merge commits having two distinct parents. Squashed
+merges and rebase merges destroy the second-parent chain and make label regime
+classification impossible. GitFlow already mandates `--no-ff` merges; this is a
+hard **requirement** for `git-semver` when using the GitFlow strategy.
 
-**Consequence for deleted branches:** This algorithm encodes branch provenance
-in the graph structure itself via second-parent links, not in branch refs. A
-release branch can be safely deleted after merging without losing the ability to
-classify its commits, as long as `--no-ff` was used.
+This algorithm encodes branch provenance in the graph structure itself via
+second-parent links, not in branch refs. A release branch can be safely deleted
+after merging without losing the ability to classify its commits.
 
-**Consequence for context-dependent labeling:** A commit that was made on dev
-before the release branch was cut will carry its `dev` label even when evaluated
-from the release branch or from `main`. This reflects its true origin. Only
-commits that were made exclusively on the release branch receive the `rc` label.
+#### Feature Branch Classification
 
-### Release and Hotfix Branch Label Regime
+A commit that is on a `feature` branch, but not on the `develop` branch is
+classified as a feature commit, and will be given the corresponding feature label.
+The `N` counter starts at 1 after the branch-point (the merge-base of the feature
+branch and its parent, the develop branch).
 
-Commits in the ancestry of a release or hotfix branch are divided into two
-groups by the branch-point (the merge-base of the release branch and its parent):
+#### Develop Branch Classification
 
-- **Dev-lineage commits** (at or before the branch-point) retain the `dev`
-pre-release label, exactly as they would if evaluated from the dev branch.
-They are included ancestry, not release candidates. Their `N` value is their
-distance from the baseline tag.
-- **Release-exclusive commits** (after the branch-point, on the second-parent
-chain of the merge into main) receive the release branch's label (e.g., `rc`).
-Their `N` counter starts at 1 at the first commit after the branch-point.
+A commit that exists on the `develop` branch before the `release` branch is
+created will carry its `develop` label even when evaluated from the `release`
+branch or from `main`. This reflects its true origin. Only commits that were
+made exclusively on the release branch receive the `release` label.
 
-In practice, for hotfix branches in well-disciplined GitFlow, the branch-point
+#### Release Candidate Branch Classification
+
+This choice is based upon how GitFlow characterizes release candidates. The
+first release candidate is the HEAD of the `develop` (or of the cherry-picked
+commits from the `develop`) branch, when the release branch is created. Typically,
+this state of the repository's history is the first version that undergoes final
+testing before a release. Any commits made directly to the `release` branch are
+fixes to the release candidate. This is unlike how `feature` branches are
+considered.
+
+Commits in the ancestry of a `release` or branch are divided into three groups
+by the branch-point (the merge-base of the branch and its parent):
+
+- **Develop-lineage commits** (before the branch-point) retain the `develop`
+pre-release label, exactly as they would if evaluated from the develop branch.
+They are included ancestry, not release candidates themselves. Their `N` value
+is their distance from the baseline tag.
+- **First release candidate commit** (at the branch-point) receives the `release`
+pre-release label (e.g. `rc`). The value for `N` is 1.
+- **Release-exclusive commits** (after the branch-point) receive the `release`
+pre-release label. Their `N` counter starts at 2 (*first release candidate* + 1).
+These commits are from the second-parent chain of the merge into `main` during a
+release.
+
+#### Hotfix Branch Classification
+
+In practice, for `hotfix` branches in well-disciplined GitFlow, the branch-point
 is always a tagged commit on `main`, so all commits on the hotfix branch are
-release-exclusive.
-
-The classification procedure when evaluating from a release or hotfix branch, or
-from `main` after a release has been merged:
-
-1. Identify the merge commit on `main` (or the release/hotfix branch tip) that
-introduced the release.
-2. Walk that merge commit's **second-parent chain** back to the branch-point.
-Commits on this chain are *release-exclusive* — they were made on the release or
-hotfix branch and receive the release branch's pre-release label (e.g., `rc.N`).
-3. All other commits in the window — those reachable from the baseline tag but
-not on the second-parent chain — are *dev-lineage* commits. They retain the
-`dev` pre-release label they would have received if evaluated from the dev branch.
-4. The `N` counter for release-exclusive commits starts at 1 at the first commit
-after the branch-point. Dev-lineage commits use their distance from the baseline
-tag as their `N`, regardless of which branch is `HEAD`.
+release-exclusive. This is the same behavior as `feature` branches, so the `N`
+counter start at 1 after the branch-point.
 
 ### Version Declared in Release Branch Name
 
@@ -464,7 +497,7 @@ stderr.
   "branch":        "release/1.0.0",
   "branchType":    "release",
   "labelRegime":   "release-exclusive",
-  "bump":          "minor",
+  "bump":          "major",
   "dirty":         false
 }
 ```
@@ -509,7 +542,7 @@ two different release branches with `rc` or higher labels (for example, if a
 cherry-pick caused the same logical change to appear in both `release/1.0.0` and
 `release/1.1.0`) this violates the GitFlow principle that a commit belongs to a
 single release. `git-semver` emits a warning in this case. The version returned
-is the one with higher SemVer precedence.
+is the one with higher semantic version precedence.
 
 ## Example Cases
 
@@ -582,6 +615,8 @@ gitGraph
     merge topic/bar id: "M4"
     
 ```
+
+Which is rendered as:
 
 ![Git History Log](git-mermaid.svg)
 
@@ -699,7 +734,7 @@ participant "Pull Request" as pr
 
 == Git init ==
 main -> main : Initial commit
-note over main #LightGrey: 0.1.0.alpha.1
+note over main #LightGrey: 0.1.0-alpha.1
 main -> dev **: Branch from main
 note over dev #LightGrey: 0.1.0-alpha.1
 
@@ -751,9 +786,9 @@ release -> main: Merge into main
 destroy pr
 destroy release
 activate main
-note over main #LightGrey: 0.1.0.beta.3
+note over main #LightGrey: 0.1.0-beta.3
 main -> main: merge commit.
-note over main #LightGrey: 0.1.0.beta.4
+note over main #LightGrey: 0.1.0-beta.4
 main -> main: tag 0.1.0
 note over main #LightGrey: 0.1.0
 main -> dev: sync merge from main into dev
