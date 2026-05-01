@@ -24,6 +24,8 @@ add_executable(gtest_smoke_test
 target_link_libraries(gtest_smoke_test
     PRIVATE
         GTest::gtest_main
+        gitsemver::warnings
+        gitsemver::options
 )
 
 include(GoogleTest)

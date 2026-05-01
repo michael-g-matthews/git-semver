@@ -8,101 +8,130 @@
 
 include(CMakeDependentOption)
 
-option(git-semver_ENABLE_HARDENING "Enable hardening" ON)
-option(git-semver_ENABLE_COVERAGE "Enable coverage reporting" OFF)
+option(gitsemver_ENABLE_HARDENING "Enable hardening" ON)
+option(gitsemver_ENABLE_COVERAGE "Enable coverage reporting" OFF)
 cmake_dependent_option(
-    git-semver_ENABLE_GLOBAL_HARDENING
+    gitsemver_ENABLE_GLOBAL_HARDENING
     "Attempt to apply hardening options to built dependencies"
     ON
-    git-semver_ENABLE_HARDENING
+    gitsemver_ENABLE_HARDENING
     OFF
 )
 
 include(cmake/Sanitizers.cmake)
-check_sanitizer_support(UBSAN_SUPPORTED ADDRSAN_SUPPORTED)
+check_ub_sanitizer_support(UBSAN_SUPPORTED)
+check_address_sanitizer_support(ADDRSAN_SUPPORTED)
 
 cmake_dependent_option(
-    git-semver_ENABLE_SANITIZER_ADDRESS
+    gitsemver_ENABLE_SANITIZER_ADDRESS
     "Enable address sanitizier"
-    ${git-semver_IS_TOP_LEVEL}
+    ${gitsemver_IS_TOP_LEVEL}
     ADDRSAN_SUPPORTED
     OFF
 )
 cmake_dependent_option(
-    git-semver_ENABLE_SANITIZER_UB
+    gitsemver_ENABLE_SANITIZER_UB
     "Enable undefined behavior sanitizer"
-    ${git-semver_IS_TOP_LEVEL}
+    ${gitsemver_IS_TOP_LEVEL}
     UBSAN_SUPPORTED
     OFF
 )
 
-option(git-semver_ENABLE_IPO 
-    "Enable Interprocedural Optimization and Link-Time Optimization" 
-    "${git-semver_IS_TOP_LEVEL}"
+option(gitsemver_ENABLE_IPO
+    "Enable Interprocedural Optimization and Link-Time Optimization"
+    "${gitsemver_IS_TOP_LEVEL}"
 )
-option(git-semver_WARNINGS_AS_ERRORS 
-    "Treat Warnings as Errors" 
-    "${git-semver_IS_TOP_LEVEL}"
+option(gitsemver_WARNINGS_AS_ERRORS
+    "Treat Warnings as Errors"
+    "${gitsemver_IS_TOP_LEVEL}"
 )
-option(git-semver_ENABLE_SANITIZER_LEAK "Enable leak sanitizer" OFF)
-option(git-semver_ENABLE_SANITIZER_THREAD "Enable thread sanitizer" OFF)
-option(git-semver_ENABLE_SANITIZER_MEMORY "Enable memory sanitizer" OFF)
-option(git-semver_ENABLE_UNITY_BUILD "Enable unity builds" OFF)
-option(git-semver_ENABLE_CLANG_TIDY "Enable clang-tidy" ${git-semver_IS_TOP_LEVEL})
-option(git-semver_ENABLE_PCH "Enable precompiled headers" OFF)
+option(gitsemver_ENABLE_SANITIZER_LEAK "Enable leak sanitizer" OFF)
+option(gitsemver_ENABLE_SANITIZER_THREAD "Enable thread sanitizer" OFF)
+option(gitsemver_ENABLE_SANITIZER_MEMORY "Enable memory sanitizer" OFF)
+option(gitsemver_ENABLE_UNITY_BUILD "Enable unity builds" OFF)
+option(gitsemver_ENABLE_CLANG_TIDY "Enable clang-tidy" ${gitsemver_IS_TOP_LEVEL})
+option(gitsemver_ENABLE_PCH "Enable precompiled headers" OFF)
 # cpp-check and ccache are unsupported at this time
 
-if(NOT git-semver_IS_TOP_LEVEL)
+if(NOT gitsemver_IS_TOP_LEVEL)
     mark_as_advanced(
-        git-semver_ENABLE_HARDENING
-        git-semver_ENABLE_COVERAGE
-        git-semver_ENABLE_IPO
-        git-semver_WARNINGS_AS_ERRORS
-        git-semver_ENABLE_SANITIZER_ADDRESS
-        git-semver_ENABLE_SANITIZER_LEAK
-        git-semver_ENABLE_SANITIZER_UB
-        git-semver_ENABLE_SANITIZER_THREAD
-        git-semver_ENABLE_SANITIZER_MEMORY
-        git-semver_ENABLE_UNITY_BUILD
-        git-semver_ENABLE_CLANG_TIDY
-        git-semver_ENABLE_PCH
+        gitsemver_ENABLE_HARDENING
+        gitsemver_ENABLE_COVERAGE
+        gitsemver_ENABLE_IPO
+        gitsemver_WARNINGS_AS_ERRORS
+        gitsemver_ENABLE_SANITIZER_ADDRESS
+        gitsemver_ENABLE_SANITIZER_LEAK
+        gitsemver_ENABLE_SANITIZER_UB
+        gitsemver_ENABLE_SANITIZER_THREAD
+        gitsemver_ENABLE_SANITIZER_MEMORY
+        gitsemver_ENABLE_UNITY_BUILD
+        gitsemver_ENABLE_CLANG_TIDY
+        gitsemver_ENABLE_PCH
     )
 endif()
 
-option(git-semver_ENABLE_TESTING "Build tests for git-semver" ${git-semver_IS_TOP_LEVEL})
-option(git-semver_ENABLE_PACKAGING "Build git-semver packages" ${git-semver_IS_TOP_LEVEL})
+option(gitsemver_ENABLE_TESTING "Build tests for gitsemver" ${gitsemver_IS_TOP_LEVEL})
+option(gitsemver_ENABLE_PACKAGING "Build gitsemver packages" ${gitsemver_IS_TOP_LEVEL})
 
 include(cmake/LibFuzzer.cmake)
 check_libfuzzer_support(LIBFUZZER_SUPPORTED)
 cmake_dependent_option(
-    git-semver_BUILD_FUZZ_TESTS
+    gitsemver_BUILD_FUZZ_TESTS
     "Build fuzz-testing executable"
-    "${git-semver_ENABLE_SANITIZER_ADDRESS} OR ${git-semver_ENABLE_SANITIZER_THREAD} OR ${git-semver_ENABLE_SANITIZER_UB}"
+    "${gitsemver_ENABLE_SANITIZER_ADDRESS} OR ${gitsemver_ENABLE_SANITIZER_THREAD} OR ${gitsemver_ENABLE_SANITIZER_UB}"
     LIBFUZZER_SUPPORTED
     OFF
 )
 
 # Global Options
-if(git-semver_ENABLE_IPO)
+if(gitsemver_ENABLE_IPO)
     include(cmake/InterproceduralOptimization.cmake)
     enable_ipo()
 endif()
-# git-semver_check_sanitizer_support(UBSAN_SUPPORTED ADDRSAN_SUPPORTED)
-if(git-semver_ENABLE_HARDENING AND git-semver_ENABLE_GLOBAL_HARDENING)
+if(gitsemver_ENABLE_HARDENING AND gitsemver_ENABLE_GLOBAL_HARDENING)
     # include(cmake/Hardening.cmake)
+    if(NOT UBSAN_SUPPORTED
+        OR gitsemver_ENABLE_SANITIZER_UB
+        OR gitsemver_ENABLE_SANITIZER_ADDRESS
+        OR gitsemver_ENABLE_SANITIZER_THREAD
+        OR gitsemver_ENABLE_SANITIZER_LEAK)
+        set(ENABLE_UBSAN_MINIMAL_RUNTIME FALSE)
+    else()
+        set(ENABLE_UBSAN_MINIMAL_RUNTIME TRUE)
+    endif()
+    # message(DEBUG "${myproject_ENABLE_HARDENING} ${ENABLE_UBSAN_MINIMAL_RUNTIME} ${myproject_ENABLE_SANITIZER_UNDEFINED}")
+    # myproject_enable_hardening(myproject_options ON ${ENABLE_UBSAN_MINIMAL_RUNTIME})
 
 endif()
 
-add_library(git-semver_warnings INTERFACE)
+# Local Options
+add_library(gitsemver_warnings INTERFACE)
 include(cmake/CompilerOptions.cmake)
 set(_wae "")
-if(git-semver_WARNINGS_AS_ERRORS)
+if(gitsemver_WARNINGS_AS_ERRORS)
     set(_wae WARNINGS_AS_ERRORS)
 endif()
-configure_standard_compiler_warnings(git-semver_warnings
+configure_standard_compiler_warnings(gitsemver_warnings
     ${_wae}
 )
-colorize_compiler_diagnostics(git-semver_warnings)
+add_library(gitsemver_options INTERFACE)
+colorize_compiler_diagnostics(gitsemver_options)
 
-# include(cmake/Linker.cmake)
+if(gitsemver_ENABLE_COVERAGE)
+    include(cmake/CodeCoverage.cmake)
+    enable_code_coverage(gitsemver_options)
+endif()
 
+if(gitsemver_ENABLE_PCH)
+    target_precompile_headers(gitsemver_options
+        INTERFACE
+        <string>
+        <utility>
+        <vector>
+    )
+endif()
+
+if(gitsemver_ENABLE_CLANG_TIDY)
+    include(cmake/StaticAnalysis.cmake)
+    gitsemver_enable_clang_tidy(gitsemver_options ${gitsemver_WARNINGS_AS_ERRORS})
+endif()

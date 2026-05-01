@@ -118,7 +118,7 @@ function(configure_standard_compiler_warnings target)
 
     target_compile_options(${target}
         INTERFACE
-            $<$<COMPILE_LANG_AND_ID:CXX,AppleClang,Clang>:${arg_CLANG_WARNINGS}>
+            $<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>:${arg_CLANG_WARNINGS}>
             $<$<COMPILE_LANG_AND_ID:CXX,GNU>:${arg_GCC_WARNINGS}>
             $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${arg_MSVC_WARNINGS}>
     )
@@ -139,7 +139,7 @@ function(colorize_compiler_diagnostics target)
 
     target_compile_options(${target}
         INTERFACE
-            $<$<COMPILE_LANG_AND_ID:CXX,AppleClang,Clang>:-fcolor-diagnostics>
+            $<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>:-fcolor-diagnostics>
             $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-fdiagnostics-color=always>
             $<$<AND:$<COMPILE_LANG_AND_ID:CXX,MVSC>,$<VERSION_GREATER:$<CXX_COMPILER_VERSION>,1900>>:/diagnostics:column>
     )
