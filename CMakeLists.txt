@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: Copyright (c) 2026 Mike Matthews <michael.g.matthews3@gmail.com>
 #===============================================================================
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 3.25.2)
 
 project(gitsemver 
     LANGUAGES CXX
@@ -13,6 +13,7 @@ project(gitsemver
 if(NOT DEFINED CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 17)
     set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+    set(CMAKE_CXX_EXTENSIONS OFF)
 endif()
 
 set(CMAKE_CXX_EXTENSIONS OFF)
